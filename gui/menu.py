@@ -25,8 +25,8 @@ class MenuScreen(BaseScreen):
         lbl_algo = tk.Label(selection_frame, text="Algorithm:", font=("Arial", 11, "bold"))
         lbl_algo.grid(row=0, column=0, padx=10)
 
-        # Can be extended to add required algorithms e.g. minimax
-        self.available_algorithms = ["Demo View"]
+        # Can be extended to add required algorithms
+        self.available_algorithms = ["Minimax", "Alpha-Beta", "Expectiminimax"]
         
         self.algo_var = tk.StringVar(value=self.available_algorithms[0])
         self.algo_dropdown = tk.OptionMenu(selection_frame, self.algo_var, *self.available_algorithms)

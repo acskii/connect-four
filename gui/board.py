@@ -1,6 +1,7 @@
 import tkinter as tk
 from .base import BaseScreen
 from board import Player, ConnectBoard
+from selector import Selector
 
 class BoardScreen(BaseScreen):
     def __init__(self, parent, controller):
@@ -26,8 +27,8 @@ class BoardScreen(BaseScreen):
         header_frame = tk.Frame(self)
         header_frame.pack(pady=10)
 
-        title = tk.Label(header_frame, text="Connect Four - Board State Viewer", font=("Arial", 16, "bold"), fg="#1b4f72")
-        title.pack()
+        self.title = tk.Label(header_frame, text="Connect Four", font=("Arial", 16, "bold"), fg="#1b4f72")
+        self.title.pack()
 
         # Canvas Frame to draw the exact blue board graphic grid matching your photo
         board_container = tk.Frame(self, bg="#104e8b", padx=10, pady=10, relief="raised", bd=4)
@@ -122,4 +123,8 @@ class BoardScreen(BaseScreen):
 
     def update_state(self):
         # Refreshes canvas whenever screen becomes active
+        algo_name = self.controller.selected_algorithm
+        # Inject the correct agent using the factory
+        self.ai_agent = Selector.create_agent(algo_name)
+        self.title.config(text=algo_name)
         self.draw_board()

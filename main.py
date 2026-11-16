@@ -1,12 +1,12 @@
 import tkinter as tk
-from gui.menu_screen import MenuScreen
-from gui.board_screen import BoardScreen
+from gui.menu import MenuScreen
+from gui.board import BoardScreen
 
 class ConnectFourApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("ConnectAI")
-        self.geometry("1000x700")
+        self.geometry("1000x800")
         self.resizable(True, True)
 
         # Shared application state variables
