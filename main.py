@@ -1,6 +1,7 @@
 import tkinter as tk
 from gui.menu import MenuScreen
 from gui.board import BoardScreen
+from selector import Selector
 
 class ConnectFourApp(tk.Tk):
     def __init__(self):
@@ -10,7 +11,10 @@ class ConnectFourApp(tk.Tk):
         self.resizable(True, True)
 
         # Shared application state variables
-        self.selected_algorithm = "Default"
+        self.algorithm = Selector.ALGORITHMS[0]
+        self.depth = 3
+        self.human_is_max = False
+        self.agent = Selector.create_agent(self.algorithm, self.depth)
 
         # Container frame holding all screens
         container = tk.Frame(self)
@@ -34,9 +38,12 @@ class ConnectFourApp(tk.Tk):
         screen.update_state()
         screen.tkraise()
 
-    def set_selected_algorithm(self, algo_name: str):
-        self.selected_algorithm = algo_name
-        print(f"[App Controller] Algorithm updated to: {algo_name}")
+    def configure_match(self, algorithm: str, depth: int, human_is_max: bool):
+        self.algorithm = algorithm
+        self.depth = depth
+        self.human_is_max = human_is_max
+        self.agent = Selector.create_agent(algorithm, depth)
+        print(f"[App Controller] Algorithm updated to: {algorithm}")
 
     # Utility function for getting board screen
     def get_board_screen(self) -> BoardScreen:

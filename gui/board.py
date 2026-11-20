@@ -1,130 +1,184 @@
 import tkinter as tk
+from tkinter import messagebox
 from .base import BaseScreen
-from board import Player, ConnectBoard
-from selector import Selector
+from board import ConnectBoard, Player
+from .tree import TreeWindow
 
 class BoardScreen(BaseScreen):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
-        # Load a sample board configuration to demonstrate state rendering
-        # You can replace or load dynamic board instances here
         self.board = ConnectBoard()
-        self.setup_demo_board_state()
+        self.current_turn = Player.Max
+        self.human_player = Player.Min
+        self.agent_player = Player.Max
+        self.col_buttons = []
         self.create_widgets()
 
-    # This function is temporary
-    def setup_demo_board_state(self):
-        # Drop a few mock pieces so colors can be demonstrated visually
-        self.board = self.board.drop(Player.Max, 2) # Red
-        self.board = self.board.drop(Player.Max, 3) # Yellow
-        self.board = self.board.drop(Player.Min, 3) # Yellow
-        self.board = self.board.drop(Player.Max, 4) # Red
-        self.board = self.board.drop(Player.Max, 4) # Red
-        self.board = self.board.drop(Player.Min, 5) # Yellow
-
     def create_widgets(self):
-        # Top Header Frame
-        header_frame = tk.Frame(self)
-        header_frame.pack(pady=10)
+        self.status_label = tk.Label(self, text="", font=("Arial", 13, "bold"), fg="#1b4f72")
+        self.status_label.pack(pady=(10, 4))
 
-        self.title = tk.Label(header_frame, text="Connect Four", font=("Arial", 16, "bold"), fg="#1b4f72")
-        self.title.pack()
+        # Column drop buttons for Human turn
+        col_bar = tk.Frame(self)
+        col_bar.pack(pady=4)
+        self.col_buttons.clear()
+        for c in range(7):
+            btn = tk.Button(
+                col_bar, text=f"Drop {c}", width=7, font=("Arial", 9, "bold"),
+                command=lambda col=c: self.on_human_drop(col)
+            )
+            btn.grid(row=0, column=c, padx=3)
+            self.col_buttons.append(btn)
 
-        # Canvas Frame to draw the exact blue board graphic grid matching your photo
-        board_container = tk.Frame(self, bg="#104e8b", padx=10, pady=10, relief="raised", bd=4)
-        board_container.pack(pady=10)
+        # Board canvas
+        board_box = tk.Frame(self, bg="#104e8b", padx=8, pady=8, relief="raised", bd=3)
+        board_box.pack(pady=6)
 
-        # Grid dimensions: 7 columns x 6 rows. Slot size = 70px diameter
-        self.cell_size = 75
-        canvas_width = 7 * self.cell_size
-        canvas_height = 6 * self.cell_size
-
+        self.cell = 68
         self.canvas = tk.Canvas(
-            board_container, width=canvas_width, height=canvas_height, 
+            board_box, width=7 * self.cell, height=6 * self.cell,
             bg="#1874cd", highlightthickness=0
         )
         self.canvas.pack()
+        self.canvas.bind("<Button-1>", self.on_canvas_click)
 
-        # Legend Frame
-        legend_frame = tk.LabelFrame(self, text=" Legend", font=("Arial", 11, "bold"), padx=15, pady=10)
-        legend_frame.pack(pady=10, fill="x", padx=40)
+        # Action bar: View Tree (opens after turns) + Restart + Menu
+        actions = tk.Frame(self)
+        actions.pack(pady=8)
 
-        # Max Legend indicator
-        max_color_box = tk.Canvas(legend_frame, width=22, height=22, bg="#1874cd", highlightthickness=0)
-        max_color_box.create_oval(2, 2, 20, 20, fill="#e74c3c", outline="#b03a2e", width=2)
-        max_color_box.grid(row=0, column=0, sticky="w", padx=5)
-        lbl_max = tk.Label(legend_frame, text="Max", font=("Arial", 10, "bold"))
-        lbl_max.grid(row=0, column=1, sticky="w", padx=5)
-
-        # Min Legend indicator
-        min_color_box = tk.Canvas(legend_frame, width=22, height=22, bg="#1874cd", highlightthickness=0)
-        min_color_box.create_oval(2, 2, 20, 20, fill="#f1c40f", outline="#d4ac0d", width=2)
-        min_color_box.grid(row=0, column=2, sticky="w", padx=15)
-        lbl_min = tk.Label(legend_frame, text="Min", font=("Arial", 10, "bold"))
-        lbl_min.grid(row=0, column=3, sticky="w", padx=5)
-
-        # Empty Slot indicator
-        empty_color_box = tk.Canvas(legend_frame, width=22, height=22, bg="#1874cd", highlightthickness=0)
-        empty_color_box.create_oval(2, 2, 20, 20, fill="#d0d3d4", outline="#909497", width=2)
-        empty_color_box.grid(row=0, column=4, sticky="w", padx=15)
-        lbl_empty = tk.Label(legend_frame, text="Empty", font=("Arial", 10, "bold"))
-        lbl_empty.grid(row=0, column=5, sticky="w", padx=5)
-
-        # Navigation back to menu
-        back_btn = tk.Button(
-            self, text="← Return to Menu", font=("Arial", 10, "bold"),
-            command=lambda: self.controller.show_screen("MenuScreen"), padx=10, pady=5
+        self.tree_btn = tk.Button(
+            actions, text="View Search Tree", font=("Arial", 10, "bold"),
+            bg="#8e44ad", fg="white", padx=12, pady=5,
+            state="disabled", command=self.open_tree_window
         )
-        back_btn.pack(pady=10)
+        self.tree_btn.grid(row=0, column=0, padx=6)
 
-        self.draw_board()
+        tk.Button(
+            actions, text="Restart Match", font=("Arial", 10),
+            padx=10, pady=5, command=self.reset_match
+        ).grid(row=0, column=1, padx=6)
 
-    # Renders connect board into a 2D board visual
-    def draw_board(self):
-        self.canvas.delete("all")
-        board_data = self.board.get_board()
+        tk.Button(
+            actions, text="Menu", font=("Arial", 10),
+            padx=10, pady=5, command=lambda: self.controller.show_screen("MenuScreen")
+        ).grid(row=0, column=2, padx=6)
 
-        # Connect Board coordinate mapping:
-        # Col ranges from 0 to 6 (left to right)
-        # Row ranges from 5 (top) down to 0 (bottom)
-        for c in range(7):
-            for r in range(6):
-                # Calculate pixel positions
-                x1 = c * self.cell_size + 10
-                # Invert row so row 5 is at the top of the canvas
-                canvas_r = 5 - r
-                y1 = canvas_r * self.cell_size + 10
-                x2 = x1 + self.cell_size - 20
-                y2 = y1 + self.cell_size - 20
-
-                # Fetch cell value from 1D list: index = c * 6 + r
-                cell_value = board_data[c * 6 + r]
-
-                # Assign colors based on player mappings requested:
-                # Player Max (2) -> Red, Player Min (1) -> Yellow, Empty (0) -> Grey/Silver
-                if cell_value == Player.Max.value:
-                    fill_color = "#e74c3c"  # Red
-                    outline_color = "#922b21"
-                elif cell_value == Player.Min.value:
-                    fill_color = "#f1c40f"  # Yellow
-                    outline_color = "#b7950b"
-                else:
-                    fill_color = "#d0d3d4"  # Grey slot as seen in reference
-                    outline_color = "#808b96"
-
-                # Draw outer blue ring shadow and circular slot disc
-                self.canvas.create_oval(x1-2, y1-2, x2+2, y2+2, fill="#125c8f", outline="") # Bevel ring shadow
-                self.canvas.create_oval(x1, y1, x2, y2, fill=fill_color, outline=outline_color, width=3)
-
-    # Used to load a new board state
-    def load_board(self, new_board: ConnectBoard):
-        self.board = new_board
-        self.draw_board()
+        # Legend
+        legend = tk.LabelFrame(self, text="Legend", font=("Arial", 9, "bold"), padx=10, pady=4)
+        legend.pack(pady=4)
+        tk.Label(legend, text="● Max", fg="#c0392b", font=("Arial", 9, "bold")).pack(side="left", padx=10)
+        tk.Label(legend, text="● Min", fg="#b7950b", font=("Arial", 9, "bold")).pack(side="left", padx=10)
+        tk.Label(legend, text="○ Empty", fg="#5d6d7e", font=("Arial", 9)).pack(side="left", padx=10)
 
     def update_state(self):
-        # Refreshes canvas whenever screen becomes active
-        algo_name = self.controller.selected_algorithm
-        # Inject the correct agent using the factory
-        self.ai_agent = Selector.create_agent(algo_name)
-        self.title.config(text=algo_name)
-        self.draw_board()
+        self.human_player = Player.Max if self.controller.human_is_max else Player.Min
+        self.agent_player = Player.Min if self.human_player == Player.Max else Player.Max
+        self.reset_match()
+
+    def reset_match(self):
+        self.board = ConnectBoard()
+        self.current_turn = Player.Max  # Max starts
+        self.tree_btn.config(state="disabled")
+        self._refresh_ui()
+        if self.current_turn == self.agent_player:
+            self.after(200, self.run_agent_turn)
+
+    def on_canvas_click(self, event):
+        if self.current_turn != self.human_player or self.board.is_terminal():
+            return
+        col = event.x // self.cell
+        if 0 <= col < 7:
+            self.on_human_drop(col)
+
+    def on_human_drop(self, col: int):
+        if self.current_turn != self.human_player or self.board.is_terminal():
+            return
+        if col not in self.board.get_available_columns():
+            messagebox.showwarning("Column Full", f"Column {col} is full.")
+            return
+
+        next_board = self.board.drop(self.human_player, col)
+        if next_board is None:
+            return
+        self.board = next_board
+        self._advance_after_move()
+
+        if not self.board.is_terminal() and self.current_turn == self.agent_player:
+            self.after(150, self.run_agent_turn)
+
+    def run_agent_turn(self):
+        if self.board.is_terminal() or self.current_turn != self.agent_player:
+            return
+        agent = self.controller.agent
+        col = agent.get_best_move(self.board, self.agent_player)
+        if col is not None:
+            next_board = self.board.drop(self.agent_player, col)
+            if next_board is not None:
+                self.board = next_board
+        # Enable tree viewer after agent turn (tree was printed to console inside get_best_move)
+        if getattr(agent, "last_tree_data", None):
+            self.tree_btn.config(state="normal")
+        self._advance_after_move()
+
+    def _advance_after_move(self):
+        if self.board.is_terminal():
+            self.current_turn = None
+            self._refresh_ui()
+            max_4s = self.board.count_connect_fours(Player.Max)
+            min_4s = self.board.count_connect_fours(Player.Min)
+            if max_4s > min_4s:
+                winner = "Max"
+            elif min_4s > max_4s:
+                winner = "Min"
+            else:
+                winner = "Draw"
+            messagebox.showinfo(
+                "Game Over",
+                f"Board full!\nMax Connect-4s: {max_4s} | Min Connect-4s: {min_4s}\nResult: {winner}"
+            )
+            return
+
+        self.current_turn = Player.Min if self.current_turn == Player.Max else Player.Max
+        self._refresh_ui()
+
+    def open_tree_window(self):
+        agent = self.controller.agent
+        tree = agent.get_last_search_tree() if agent else {}
+        info = f"{self.controller.algorithm} | K={self.controller.depth}"
+        TreeWindow(self, tree, info)
+
+    def _refresh_ui(self):
+        avail = set(self.board.get_available_columns())
+        human_can_act = (self.current_turn == self.human_player) and not self.board.is_terminal()
+        for c, btn in enumerate(self.col_buttons):
+            btn.config(state="normal" if (human_can_act and c in avail) else "disabled")
+
+        if self.board.is_terminal():
+            turn_text = "Finished"
+        elif self.current_turn == self.human_player:
+            turn_text = f"Human ({self.human_player.name})"
+        else:
+            turn_text = f"Agent ({self.agent_player.name}) thinking..."
+
+        self.status_label.config(
+            text=f"{self.controller.algorithm} (K={self.controller.depth}) | Turn: {turn_text}"
+        )
+        self._draw_board()
+
+    def _draw_board(self):
+        self.canvas.delete("all")
+        cells = self.board.get_board()
+        for c in range(7):
+            for r in range(6):
+                x1 = c * self.cell + 8
+                y1 = (5 - r) * self.cell + 8
+                x2 = (c + 1) * self.cell - 8
+                y2 = (6 - r) * self.cell - 8
+                v = cells[c * 6 + r]
+                if v == Player.Max.value:
+                    fill, outline = "#e74c3c", "#922b21"
+                elif v == Player.Min.value:
+                    fill, outline = "#f1c40f", "#b7950b"
+                else:
+                    fill, outline = "#d0d3d4", "#808b96"
+                self.canvas.create_oval(x1, y1, x2, y2, fill=fill, outline=outline, width=2.5)

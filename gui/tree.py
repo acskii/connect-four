@@ -1,47 +1,68 @@
 import tkinter as tk
+from tkinter import scrolledtext
 
 # For BONUS
 # Window that renders and traces the search tree for the current turn
-class TreeVisualizerWindow(tk.Toplevel):
-    def __init__(self, parent, tree_data: dict, algorithm_name: str):
+class TreeWindow(tk.Toplevel):
+    def __init__(self, parent, tree_data: dict, title_info: str):
         super().__init__(parent)
-        self.title(f"Tree Visualizer")
-        self.geometry("650x450")
-        self.tree_data = tree_data
-        self.create_widgets()
+        self.title(f"Search Tree — {title_info}")
+        self.geometry("760x560")
+        self.tree_data = tree_data or {}
 
-    def create_widgets(self):
-        header = tk.Label(
-            self, text="Minimax Decision Tree Trace (Bonus Feature)", 
-            font=("Arial", 14, "bold"), fg="#1b4f72"
-        )
-        header.pack(pady=10)
+        tk.Label(self, text=f"Search Tree ({title_info})", font=("Arial", 13, "bold"), fg="#1b4f72").pack(pady=8)
 
-        # Canvas for drawing tree hierarchy nodes
-        self.canvas = tk.Canvas(self, bg="white", width=610, height=340)
-        self.canvas.pack(pady=5, padx=20)
+        tabs = tk.Frame(self)
+        tabs.pack(fill="both", expand=True, padx=12, pady=6)
 
-        # Draw root node and recursive branches
-        self.draw_node(self.tree_data, x=305, y=40, dx=150, level=0)
+        # Left/Top: Readable indented text trace
+        tk.Label(tabs, text="Readable Tree Trace:", font=("Arial", 10, "bold")).pack(anchor="w")
+        txt = scrolledtext.ScrolledText(tabs, height=11, font=("Consolas", 9))
+        txt.pack(fill="x", pady=(2, 8))
+        txt.insert("1.0", self._format_text(self.tree_data))
+        txt.config(state="disabled")
 
-    def draw_node(self, node_dict, x, y, dx, level):
-        """Recursively renders tree nodes and connecting branches on the canvas."""
-        node_label = f"{node_dict.get('node', 'Node')}\nScore: {node_dict.get('score', 0)}"
-        
-        # Draw node box
-        self.canvas.create_rectangle(x-45, y-20, x+45, y+20, fill="#EBF5FB", outline="#2E86C1", width=2)
-        self.canvas.create_text(x, y, text=node_label, font=("Arial", 8, "bold"), justify="center")
+        # Bottom: Visual node diagram
+        tk.Label(tabs, text="Visual Tree:", font=("Arial", 10, "bold")).pack(anchor="w")
+        self.canvas = tk.Canvas(tabs, bg="white", height=240)
+        self.canvas.pack(fill="both", expand=True)
+        self.canvas.bind("<Configure>", lambda e: self._redraw())
 
-        # Draw children nodes
-        children = node_dict.get("children", [])
-        num_children = len(children)
-        if num_children > 0:
-            next_y = y + 80
-            for i, child in enumerate(children):
-                next_x = x - dx + (i * (2 * dx / max(1, num_children - 1))) if num_children > 1 else x
-                
-                # Draw connecting line
-                self.canvas.create_line(x, y + 20, next_x, next_y - 20, fill="#85929E", width=1.5)
-                
-                # Recursive call
-                self.draw_node(child, next_x, next_y, dx / 2, level + 1)
+    def _format_text(self, node: dict, prefix: str = "", is_last: bool = True, is_root: bool = True) -> str:
+        if not node:
+            return "<No tree recorded yet>"
+        line = f"{node.get('node', '?')} [val={node.get('score', '?')}]\n"
+        if is_root:
+            out = line
+            new_prefix = ""
+        else:
+            out = f"{prefix}{'└── ' if is_last else '├── '}{line}"
+            new_prefix = prefix + ("    " if is_last else "│   ")
+        kids = node.get("children", [])
+        for i, k in enumerate(kids):
+            out += self._format_text(k, new_prefix, i == len(kids) - 1, is_root=False)
+        return out
+
+    def _redraw(self):
+        self.canvas.delete("all")
+        if not self.tree_data:
+            return
+        w = max(300, self.canvas.winfo_width())
+        self._draw_node(self.tree_data, x=w / 2, y=28, spread=w / 4, depth_left=3)
+
+    def _draw_node(self, node: dict, x: float, y: float, spread: float, depth_left: int):
+        label = f"{node.get('node', '?')}\n{node.get('score', '?')}"
+        self.canvas.create_rectangle(x - 52, y - 16, x + 52, y + 16, fill="#ebf5fb", outline="#2e86c1", width=1.5)
+        self.canvas.create_text(x, y, text=label, font=("Arial", 7, "bold"), justify="center")
+
+        if depth_left <= 0:
+            return
+        kids = node.get("children", [])
+        n = len(kids)
+        if n == 0:
+            return
+        ny = y + 62
+        for i, kid in enumerate(kids):
+            nx = x if n == 1 else (x - spread + i * (2 * spread / (n - 1)))
+            self.canvas.create_line(x, y + 16, nx, ny - 16, fill="#7f8c8d")
+            self._draw_node(kid, nx, ny, max(25.0, spread * 0.55), depth_left - 1)
