@@ -15,27 +15,29 @@ def _other(p: Player) -> Player:
 # Pruned branches are simply absent from the recorded tree.
 class AlphaBetaAgent(BaseAgent, SearchTreeMixin):
     def __init__(self, depth: int = 4):
-        self.depth = depth
+        self.depth = max(1, int(depth))
         self.last_tree_data = {}
         self.nodes_expanded = 0
         self.last_execution_time = 0.0
 
-    def get_best_move(self, board: ConnectBoard, player: Player) -> int:
+    def get_best_move(self, board: ConnectBoard, player: Player):
         start = time.perf_counter()
         self.nodes_expanded = 1
         maximizing = player == Player.Max
         alpha, beta = -INF, INF
-        cols = [c for c in COLUMN_ORDER if c in board.get_available_columns()]
+        avail = set(board.get_available_columns())
+        cols = [c for c in COLUMN_ORDER if c in avail]
 
-        best_col, best_val = -1, None
+        best_col, best_val = None, None
         children = []
         for c in cols:
-            val, node = self._search(board.drop(player, c), self.depth - 1,
-                                     _other(player), alpha, beta, c)
+            next_board = board.drop(player, c)
+            if next_board is None:
+                continue
+            val, node = self._search(next_board, self.depth - 1, _other(player), alpha, beta, c)
             children.append(node)
             if best_val is None or (val > best_val if maximizing else val < best_val):
                 best_val, best_col = val, c
-            # Alpha only moves at MAX nodes, beta only at MIN nodes.
             if maximizing:
                 alpha = max(alpha, best_val)
             else:
@@ -44,7 +46,8 @@ class AlphaBetaAgent(BaseAgent, SearchTreeMixin):
                 break
 
         if best_val is None:
-            best_val = evaluate_board(board)
+            best_val = float(evaluate_board(board))
+
         self.last_tree_data = {
             "node": f"ROOT ({'MAX' if maximizing else 'MIN'})",
             "score": round(float(best_val), 2),
@@ -54,32 +57,46 @@ class AlphaBetaAgent(BaseAgent, SearchTreeMixin):
         self.print_search_tree()
         return best_col
 
-    def _search(self, board, depth, to_move, alpha, beta, col):
+    def _search(self, board: ConnectBoard, depth: int, to_move: Player, alpha: float, beta: float, col: int):
         self.nodes_expanded += 1
-        if depth == 0 or board.is_terminal():
-            v = evaluate_board(board)
+        if depth <= 0 or board.is_terminal():
+            v = float(evaluate_board(board))
             return v, {"node": f"LEAF (col {col})", "score": round(v, 2), "children": []}
 
         maximizing = to_move == Player.Max
         best = -INF if maximizing else INF
         children = []
-        avail = board.get_available_columns()
+        avail = set(board.get_available_columns())
+
         for c in COLUMN_ORDER:
             if c not in avail:
                 continue
-            v, node = self._search(board.drop(to_move, c), depth - 1,
-                                   _other(to_move), alpha, beta, c)
+            next_board = board.drop(to_move, c)
+            if next_board is None:
+                continue
+            v, node = self._search(next_board, depth - 1, _other(to_move), alpha, beta, c)
             children.append(node)
             if maximizing:
-                best = max(best, v)
-                alpha = max(alpha, best)
+                if v > best:
+                    best = v
+                if best > alpha:
+                    alpha = best
             else:
-                best = min(best, v)
-                beta = min(beta, best)
-            if alpha >= beta:        # prune remaining siblings
+                if v < best:
+                    best = v
+                if best < beta:
+                    beta = best
+            if alpha >= beta:
                 break
-        return best, {"node": f"{'MAX' if maximizing else 'MIN'} (col {col})",
-                      "score": round(best, 2), "children": children}
+
+        if best in (INF, -INF):
+            best = float(evaluate_board(board))
+
+        return best, {
+            "node": f"{'MAX' if maximizing else 'MIN'} (col {col})",
+            "score": round(float(best), 2),
+            "children": children,
+        }
 
     def get_last_search_tree(self) -> dict:
         return self.last_tree_data
