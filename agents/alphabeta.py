@@ -54,6 +54,10 @@ class AlphaBetaAgent(BaseAgent, SearchTreeMixin):
             "children": children,
         }
         self.last_execution_time = time.perf_counter() - start
+        self.last_tree_data["_stats"] = {
+            "nodes_expanded": self.nodes_expanded,
+            "execution_time": self.last_execution_time,
+        }
         self.print_search_tree()
         return best_col
 
