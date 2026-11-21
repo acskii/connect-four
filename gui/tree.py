@@ -3,25 +3,23 @@ from tkinter import scrolledtext
 
 
 class TreeWindow(tk.Toplevel):
-    """Scrollable search-tree explorer with DFS previous/next navigation."""
+    """Scrollable, complete search-tree explorer with step-by-step navigation."""
 
-    MAX_VISIBLE_NODES = 220
-    MAX_VISIBLE_DEPTH = 5
-    MAX_STEPS = 1500
-    NODE_WIDTH = 128
-    LEVEL_HEIGHT = 88
+    NODE_WIDTH = 172
+    LEVEL_HEIGHT = 104
 
     def __init__(self, parent, tree_data: dict, title_info: str):
         super().__init__(parent)
         self.title(f"Search Tree — {title_info}")
-        self.geometry("1000x720")
+        self.geometry("1100x760")
         self.minsize(760, 520)
         self.configure(bg="#f3f6fb")
         self.tree_data = tree_data or {}
+        self.stats = self.tree_data.get("_stats", {})
         self.steps = []
         self._collect_steps(self.tree_data, ())
+        self.step_index_by_path = {path: index for index, (_node, path) in enumerate(self.steps)}
         self.step_index = 0
-        self.visible_tree = self._make_visible_tree(self.tree_data)
         self.positions = {}
 
         tk.Label(
@@ -29,13 +27,23 @@ class TreeWindow(tk.Toplevel):
             fg="#17324d", bg="#f3f6fb"
         ).pack(pady=(12, 1))
         tk.Label(
-            self, text=f"{title_info} · follow evaluated nodes one step at a time",
+            self, text=f"{title_info} · every recorded node and branch",
             font=("Arial", 10), fg="#66788a", bg="#f3f6fb"
+        ).pack(pady=(0, 7))
+        stats_text = (
+            f"Nodes expanded: {self.stats.get('nodes_expanded', '—')}"
+            f"    |    Search time: {self.stats.get('execution_time', 0.0):.4f}s"
+            if self.stats else "Search statistics unavailable"
+        )
+        tk.Label(
+            self, text=stats_text, font=("Arial", 10, "bold"),
+            fg="#315b46", bg="#e9f7ef", padx=10, pady=6
         ).pack(pady=(0, 7))
 
         self.selected_label = tk.Label(
-            self, text="", font=("Arial", 10, "bold"), fg="#23435e",
-            bg="#ffffff", anchor="w", padx=10, pady=8, relief="groove", bd=1
+            self, text="", font=("Arial", 10), fg="#23435e",
+            bg="#ffffff", anchor="w", justify="left", wraplength=1500,
+            padx=10, pady=8, relief="groove", bd=1
         )
         self.selected_label.pack(fill="x", padx=12, pady=(2, 7))
 
@@ -43,15 +51,34 @@ class TreeWindow(tk.Toplevel):
         nav.pack(pady=(0, 8))
         self.prev_btn = tk.Button(nav, text="← Previous", width=12, command=self.previous_step)
         self.prev_btn.pack(side="left", padx=5)
-        self.step_counter = tk.Label(nav, text="", font=("Arial", 10, "bold"), bg="#f3f6fb", fg="#435b70", width=18)
+        self.step_counter = tk.Label(
+            nav, text="", font=("Arial", 10, "bold"), bg="#f3f6fb",
+            fg="#435b70", width=18
+        )
         self.step_counter.pack(side="left", padx=5)
         self.next_btn = tk.Button(nav, text="Next →", width=12, command=self.next_step)
         self.next_btn.pack(side="left", padx=5)
         tk.Button(nav, text="Start", width=9, command=self.first_step).pack(side="left", padx=(12, 4))
         tk.Button(nav, text="End", width=9, command=self.last_step).pack(side="left", padx=4)
 
+        legend = tk.Frame(self, bg="#f3f6fb")
+        legend.pack(pady=(0, 7))
+        legend_items = (
+            ("ROOT", "#244b6b", "white"),
+            ("MAX", "#dceeff", "#183b56"),
+            ("MIN", "#fff0d9", "#704214"),
+            ("CHANCE", "#efe4ff", "#503078"),
+            ("LEAF", "#e1f5e8", "#205b36"),
+            ("Selected", "#fff4cc", "#8a5a00"),
+        )
+        for text, fill, foreground in legend_items:
+            tk.Label(
+                legend, text=f" {text} ", font=("Arial", 9, "bold"),
+                bg=fill, fg=foreground, padx=5, pady=3, relief="groove", bd=1
+            ).pack(side="left", padx=4)
+
         diagram = tk.LabelFrame(
-            self, text="Recorded search tree (scroll to explore)",
+            self, text="Complete recorded search tree (scroll to explore)",
             font=("Arial", 10, "bold"), bg="#f3f6fb", fg="#23435e", padx=4, pady=4
         )
         diagram.pack(fill="both", expand=True, padx=12, pady=(0, 8))
@@ -69,8 +96,13 @@ class TreeWindow(tk.Toplevel):
 
         lower = tk.Frame(self, bg="#f3f6fb")
         lower.pack(fill="x", padx=12, pady=(0, 10))
-        tk.Label(lower, text="Readable trace", font=("Arial", 10, "bold"), bg="#f3f6fb", fg="#23435e").pack(anchor="w")
-        self.trace = scrolledtext.ScrolledText(lower, height=7, font=("Consolas", 9), wrap="none")
+        tk.Label(
+            lower, text="Complete readable tree trace", font=("Arial", 10, "bold"),
+            bg="#f3f6fb", fg="#23435e"
+        ).pack(anchor="w")
+        self.trace = scrolledtext.ScrolledText(
+            lower, height=8, font=("Consolas", 9), wrap="none"
+        )
         self.trace.pack(fill="x", pady=(3, 0))
         self.trace.insert("1.0", self._format_text(self.tree_data))
         self.trace.config(state="disabled")
@@ -81,60 +113,38 @@ class TreeWindow(tk.Toplevel):
         self._redraw()
 
     def _collect_steps(self, node, path):
-        if len(self.steps) >= self.MAX_STEPS or not isinstance(node, dict) or not node:
+        """Record every node in depth-first order for the navigation buttons."""
+        if not isinstance(node, dict) or not node:
             return
         self.steps.append((node, path))
         for index, child in enumerate(node.get("children", [])):
-            if len(self.steps) >= self.MAX_STEPS:
-                break
             self._collect_steps(child, path + (index,))
 
-    def _make_visible_tree(self, node):
-        remaining = [self.MAX_VISIBLE_NODES]
-
-        def copy(source, depth):
-            if remaining[0] <= 0:
-                return None
-            remaining[0] -= 1
-            result = {"node": source.get("node", "?"), "score": source.get("score", "?"), "children": []}
-            children = source.get("children", [])
-            if depth >= self.MAX_VISIBLE_DEPTH:
-                if children:
-                    result["children"].append({"node": f"… {len(children)} deeper", "score": "", "children": [], "_summary": True})
-                return result
-            for child in children:
-                if remaining[0] <= 1:
-                    result["children"].append({"node": "… more nodes", "score": "", "children": [], "_summary": True})
-                    break
-                rendered = copy(child, depth + 1)
-                if rendered:
-                    result["children"].append(rendered)
-            return result
-
-        return copy(node or {}, 0)
-
-    def _format_text(self, node, prefix="", is_last=True, is_root=True, count=None):
-        if count is None:
-            count = [0]
+    def _format_text(self, node):
+        """Return a complete indented tree trace; no node/depth truncation."""
         if not node:
             return "<No tree recorded yet>\n"
-        count[0] += 1
-        if count[0] > 600:
-            return prefix + "└── … trace shortened after 600 nodes\n"
-        score = node.get("score", "?")
-        line = f"{node.get('node', '?')} [score={score}]\n"
-        if is_root:
-            out, new_prefix = line, ""
-        else:
-            out = f"{prefix}{'└── ' if is_last else '├── '}{line}"
-            new_prefix = prefix + ("    " if is_last else "│   ")
-        kids = node.get("children", [])
-        for i, kid in enumerate(kids):
-            if count[0] >= 600:
-                out += new_prefix + "└── … remaining trace hidden\n"
-                break
-            out += self._format_text(kid, new_prefix, i == len(kids) - 1, False, count)
-        return out
+
+        lines = []
+        stack = [(node, "", True, True)]
+        while stack:
+            current, prefix, is_last, is_root = stack.pop()
+            score = current.get("score", "?")
+            label = f"{current.get('node', '?')} [score={score}]"
+            if is_root:
+                lines.append(label)
+                child_prefix = ""
+            else:
+                lines.append(prefix + ("└── " if is_last else "├── ") + label)
+                child_prefix = prefix + ("    " if is_last else "│   ")
+
+            children = current.get("children", [])
+            for index in range(len(children) - 1, -1, -1):
+                stack.append((
+                    children[index], child_prefix,
+                    index == len(children) - 1, False
+                ))
+        return "\n".join(lines) + "\n"
 
     def previous_step(self):
         self.step_index = max(0, self.step_index - 1)
@@ -159,11 +169,20 @@ class TreeWindow(tk.Toplevel):
     def _show_step(self):
         node, path = self.steps[self.step_index]
         if node:
-            label = f"Step {self.step_index + 1}/{len(self.steps)}  ·  {node.get('node', '?')}  ·  score {node.get('score', '?')}"
+            node_name = node.get("node", "?")
+            node_type = node_name.split("(", 1)[0].strip()
+            children_count = len(node.get("children", []))
+            route = "ROOT" if not path else "ROOT → " + " → ".join(
+                f"branch {branch + 1}" for branch in path
+            )
+            label = (
+                f"Step {self.step_index + 1}/{len(self.steps)}  ·  {node_name}\n"
+                f"Evaluation score: {node.get('score', '?')}    |    "
+                f"Node type: {node_type}    |    Depth: {len(path)}    |    "
+                f"Children: {children_count}\nPath: {route}"
+            )
         else:
             label = "No search tree recorded"
-        if self.step_index == len(self.steps) - 1 and len(self.steps) >= self.MAX_STEPS:
-            label += "  (step limit reached)"
         self.selected_label.config(text=label)
         self.step_counter.config(text=f"{self.step_index + 1} / {len(self.steps)}")
         self.prev_btn.config(state="normal" if self.step_index > 0 else "disabled")
@@ -176,50 +195,91 @@ class TreeWindow(tk.Toplevel):
     def _redraw(self):
         self.canvas.delete("all")
         self.positions.clear()
-        if not self.visible_tree:
+        if not self.tree_data:
             return
+
         leaf_counter = [0]
-        self._layout(self.visible_tree, (), 0, leaf_counter)
+        max_depth = self._layout(self.tree_data, (), 0, leaf_counter)
         total_leaves = max(1, leaf_counter[0])
         width = max(self.canvas.winfo_width(), total_leaves * self.NODE_WIDTH + 80, 700)
-        height = (self.MAX_VISIBLE_DEPTH + 2) * self.LEVEL_HEIGHT
-        # Scale leaf slots to the available minimum width, retaining a wide
-        # scrollable canvas when the tree has many branches.
+        height = max(self.canvas.winfo_height(), (max_depth + 2) * self.LEVEL_HEIGHT)
         slot_width = max(self.NODE_WIDTH, (width - 80) / total_leaves)
-        self._draw_edges(self.visible_tree, (), slot_width, width)
+        self._draw_edges(self.tree_data, (), slot_width)
         self.canvas.configure(scrollregion=(0, 0, width, height))
 
     def _layout(self, node, path, depth, leaf_counter):
+        """Assign every node a position and return the deepest level below it."""
         children = node.get("children", [])
         if not children:
             center = leaf_counter[0] + 0.5
             leaf_counter[0] += 1
+            deepest = depth
         else:
-            child_centers = [self._layout(child, path + (i,), depth + 1, leaf_counter) for i, child in enumerate(children)]
+            child_centers = []
+            deepest = depth
+            for index, child in enumerate(children):
+                child_depth = self._layout(child, path + (index,), depth + 1, leaf_counter)
+                child_centers.append(self.positions[path + (index,)][0])
+                deepest = max(deepest, child_depth)
             center = sum(child_centers) / len(child_centers)
         self.positions[path] = (center, depth)
-        return center
+        return deepest
 
-    def _draw_edges(self, node, path, slot_width, width):
+    def _draw_edges(self, node, path, slot_width):
         center, depth = self.positions[path]
         x = 40 + center * slot_width
         y = 34 + depth * self.LEVEL_HEIGHT
-        for i, child in enumerate(node.get("children", [])):
-            child_path = path + (i,)
+
+        children = node.get("children", [])
+        for index, child in enumerate(children):
+            child_path = path + (index,)
             child_center, child_depth = self.positions[child_path]
             child_x = 40 + child_center * slot_width
             child_y = 34 + child_depth * self.LEVEL_HEIGHT
-            self.canvas.create_line(x, y + 23, child_x, child_y - 23, fill="#b5c2cf", width=1.3)
-            self._draw_edges(child, child_path, slot_width, width)
+            self.canvas.create_line(
+            x, y + 27, child_x, child_y - 27,
+                fill="#b5c2cf", width=1.3
+            )
+            self._draw_edges(child, child_path, slot_width)
 
-        selected = self.steps[self.step_index][1] if self.steps and self.steps[self.step_index][0] else None
+        selected = self.steps[self.step_index][1] if self.steps else None
         is_selected = path == selected
         label = f"{node.get('node', '?')}\n{node.get('score', '')}"
-        if node.get("_summary"):
-            fill, outline, color = "#f2f4f7", "#9aa8b5", "#596a78"
-        elif is_selected:
-            fill, outline, color = "#d6f5e3", "#1e8449", "#145a32"
+        node_name = str(node.get("node", "?")).upper()
+        if node_name.startswith("ROOT"):
+            fill, outline, color = "#244b6b", "#17324d", "white"
+        elif node_name.startswith("MAX"):
+            fill, outline, color = "#dceeff", "#4385b5", "#183b56"
+        elif node_name.startswith("MIN"):
+            fill, outline, color = "#fff0d9", "#c28a3e", "#704214"
+        elif node_name.startswith("CHANCE"):
+            fill, outline, color = "#efe4ff", "#8463b6", "#503078"
+        elif node_name.startswith("LEAF"):
+            fill, outline, color = "#e1f5e8", "#57a773", "#205b36"
         else:
-            fill, outline, color = "#eaf3fb", "#2e86c1", "#183b56"
-        self.canvas.create_rectangle(x - 58, y - 23, x + 58, y + 23, fill=fill, outline=outline, width=2 if is_selected else 1.2)
-        self.canvas.create_text(x, y, text=label, width=110, font=("Arial", 8, "bold"), fill=color, justify="center")
+            fill, outline, color = "#eef2f6", "#8796a5", "#34495e"
+        if is_selected:
+            fill, outline, color = "#fff4cc", "#d18a00", "#5c4100"
+        tag = "tree_node_" + ("root" if not path else "_".join(map(str, path)))
+        self.canvas.create_rectangle(
+            x - 75, y - 27, x + 75, y + 27,
+            fill=fill, outline=outline, width=2 if is_selected else 1.2,
+            tags=(tag, "tree_node")
+        )
+        self.canvas.create_text(
+            x, y, text=label, width=145, font=("Arial", 9, "bold"),
+            fill=color, justify="center", tags=(tag, "tree_node")
+        )
+        self.canvas.tag_bind(
+            tag, "<Button-1>",
+            lambda _event, selected_path=path: self._select_node(selected_path)
+        )
+
+    def _select_node(self, path):
+        """Select a node directly from the diagram and show its details."""
+        index = self.step_index_by_path.get(path)
+        if index is None:
+            return
+        self.step_index = index
+        self._show_step()
+        self._redraw()
